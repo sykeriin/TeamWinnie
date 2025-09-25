@@ -60,11 +60,6 @@ def get_weather():
         "pirep": fetch_weather_data("pirep", airport_ids),
         "airsigmet": fetch_weather_data("airsigmet"),
         "isigmet": fetch_weather_data("isigmet"),
-        "gairmet": fetch_weather_data("gairmet"),
-        "airmet": fetch_weather_data("airmet"),
-        "tcf": fetch_weather_data("tcf"),
-        "cwa": fetch_weather_data("cwa"),
-        "windtemp": fetch_weather_data("windtemp")
     }
 
     return jsonify(result)
