@@ -1,71 +1,28 @@
-# Install dependency with: pip install metar
+import re
+from datetime import datetime
 
-from Metar import Metar
-
-def metar_to_nlp(raw_metar: str) -> str:
+def metar_to_nlp(raw_metar):
     """
-    Decodes a raw METAR string into a readable natural language weather briefing
-    suitable for pilots, highlighting key weather elements concisely.
+    Decodes a raw METAR string into a brief, readable weather summary for pilots.
     """
-    try:
-        # Parse METAR code
-        obs = Metar.Metar(raw_metar)
+    report = []
 
-        # Build readable report parts
-        report = []
+    # 1. Extract station code (ICAO)
+    station = re.match(r'^(\w{4})', raw_metar)
+    if station:
+        report.append(f"Airport: {station.group(1)}")
 
-        # Station and time
-        if obs.station_id:
-            report.append(f"Airport: {obs.station_id}")
-        if obs.time:
-            report.append(f"Observed at {obs.time.strftime('%H:%MZ on %Y-%m-%d')}")
+    # 2. Extract observation time (DDHHMMZ)
+    time_match = re.search(r'(\d{6})Z', raw_metar)
+    if time_match:
+        day = time_match.group(1)[:2]
+        hour = time_match.group(1)[2:4]
+        minute = time_match.group(1)[4:6]
+        report.append(f"Observed at {hour}:{minute}Z on day {day}")
 
-        # Flight category for quick flight condition reference
-        if obs.flight_category:
-            report.append(f"Flight category: {obs.flight_category}")
-
-        # Weather phenomena (e.g., rain, fog)
-        if obs.weather:
-            weather_desc = " and ".join(str(w) for w in obs.weather)
-            report.append(f"Weather: {weather_desc}")
-
-        # Temperature and dew point in Celsius
-        if obs.temp:
-            report.append(f"Temperature: {obs.temp.value()}°C")
-        if obs.dewpt:
-            report.append(f"Dew point: {obs.dewpt.value()}°C")
-
-        # Wind details with direction (degrees) and speed (knots)
-        if obs.wind_speed:
-            wind = f"Winds from {obs.wind_dir.value()}° at {obs.wind_speed.value()} knots"
-            if obs.wind_gust:
-                wind += f", gusting to {obs.wind_gust.value()} knots"
-            report.append(wind)
-
-        # Horizontal visibility
-        if obs.vis:
-            report.append(f"Visibility: {obs.vis.value()} {obs.vis.unit}")
-
-        # Cloud layers description
-        clouds = [str(cloud) for cloud in obs.sky]
-        if clouds:
-            report.append(f"Cloud coverage: {', '.join(clouds)}")
-
-        # Altimeter/Pressure reading
-        if obs.press:
-            report.append(f"Pressure: {obs.press.value()} {obs.press.unit}")
-
-        # Join all components into a concise paragraph
-        return ". ".join(report) + "."
-
-    except Exception as e:
-        # Handle any parsing errors gracefully
-        return f"Error decoding METAR data: {e}"
-
-def generate_pilot_briefing(airport_name: str, raw_metar: str) -> str:
-    """
-    Combine airport name with decoded weather to return a pilot-friendly briefing string.
-    """
-    briefing = metar_to_nlp(raw_metar)
-    return f"{airport_name} Weather Briefing:\n{briefing}"
+    # 3. Extract wind info (dddffKT or dddffGggKT)
+    wind_match = re.search(r'(\d{3})(\d{2,3})(G\d{2,3})?KT', raw_metar)
+    if wind_match:
+        direction = wind_match.group(1)
+        speed = wind_match
 
