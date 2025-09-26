@@ -1,0 +1,40 @@
+POST http://127.0.0.1:5000/weather
+Content-Type: application/json
+
+{
+  "airports": ["KSFO", "KJFK", "KMIA"]
+}
+
+# Health check
+GET http://localhost:5000/health
+
+###
+
+# Weather analysis
+POST http://localhost:5000/weather/analysis
+Content-Type: application/json
+
+{
+  "stations": ["VOBL", "VOMM"]
+}
+
+###
+
+# Severity assessment
+POST http://localhost:5000/weather/severity
+Content-Type: application/json
+
+{
+  "stations": ["VOBL", "VOMM"]
+}
+
+###
+
+# Route weather
+POST http://localhost:5000/weather/route
+Content-Type: application/json
+
+{
+  "origin": "VOBL",
+  "destination": "VEGT"
+}
