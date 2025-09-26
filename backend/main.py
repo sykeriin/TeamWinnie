@@ -1,6 +1,13 @@
+from tokenizer import tokenize_metar  # in same folder
+from gemini_client import gemini_brief_from_tokens
+
 import requests
 from flask import Flask, request, jsonify
+#<<<<<<< HEAD
+from flask_cors import CORS 
+#=======
 from flask_cors import CORS
+#>>>>>>> 4c8e4522b00ea3a76df3d56d998fba157d55a1ee
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers="*")
