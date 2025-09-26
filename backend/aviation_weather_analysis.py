@@ -28,21 +28,22 @@ from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 import google.generativeai as genai
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import logging
 from geopy.distance import geodesic
 import re
 
+
 # Import your existing weather data fetching functionality
 # Assuming your main.py has functions like get_metar_data, get_taf_data, etc.
 try:
     from main import (
-        get_metar_data,      # Replace with your actual function names
-        get_taf_data,        # Replace with your actual function names  
-        get_pirep_data,      # Replace with your actual function names
-        get_sigmet_data,     # Replace with your actual function names
-        get_airmet_data      # Replace with your actual function names
+        metar,      # Replace with your actual function names
+        taf,        # Replace with your actual function names  
+        pirep,      # Replace with your actual function names
+        isigmet,     # Replace with your actual function names
+        airsigmet      # Replace with your actual function names
     )
     print("Successfully imported weather data functions from main.py")
 except ImportError as e:
@@ -77,6 +78,23 @@ This allows the API to be called from web applications running on different doma
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing
 
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "*")
+        response.headers.add('Access-Control-Allow-Methods', "*")
+        return response
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,application/json')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers['Content-Type'] = 'application/json'
+    return response
+
 # ============================================================================
 # ENUMS AND DATA STRUCTURES
 # ============================================================================
@@ -98,11 +116,11 @@ class ReportType(Enum):
     Aviation weather report types as defined by ICAO standards.
     Each type provides different information crucial for flight planning.
     """
-    METAR = "metar"    # Meteorological Aerodrome Report (current conditions)
-    TAF = "taf"        # Terminal Aerodrome Forecast (forecast conditions)
-    PIREP = "pirep"    # Pilot Report (real pilot observations)
-    SIGMET = "sigmet"  # Significant Meteorological Information (hazardous weather)
-    AIRMET = "airmet"  # Airmen's Meteorological Information (moderate weather)
+    METARs = "metar"    # Meteorological Aerodrome Report (current conditions)
+    TAFs = "taf"        # Terminal Aerodrome Forecast (forecast conditions)
+    PIREPs = "pirep"    # Pilot Report (real pilot observations)
+    SIGMETs = "sigmet"  # Significant Meteorological Information (hazardous weather)
+    AIRMETs = "airmet"  # Airmen's Meteorological Information (moderate weather)
 
 @dataclass
 class WeatherData:
@@ -164,7 +182,7 @@ class WeatherDataIntegrator:
 
             # MODIFY THIS: Call your actual METAR fetching function from main.py
             # Replace 'get_metar_data' with your actual function name
-            raw_metar_data = get_metar_data(station_ids, hours_before)
+            raw_metar_data = metar(station_ids, hours_before)
 
             # Convert your data format to our standardized WeatherData format
             weather_data_list = []
@@ -202,7 +220,7 @@ class WeatherDataIntegrator:
             logger.info(f"Fetching TAF data for stations: {station_ids}")
 
             # MODIFY THIS: Call your actual TAF fetching function from main.py
-            raw_taf_data = get_taf_data(station_ids)
+            raw_taf_data = taf(station_ids)
 
             weather_data_list = []
 
@@ -240,7 +258,7 @@ class WeatherDataIntegrator:
             logger.info(f"Fetching PIREP data for bounds: {bounds}")
 
             # MODIFY THIS: Call your actual PIREP fetching function from main.py
-            raw_pirep_data = get_pirep_data(bounds, hours_before)
+            raw_pirep_data = pirep(bounds, hours_before)
 
             weather_data_list = []
 
@@ -263,8 +281,50 @@ class WeatherDataIntegrator:
         except Exception as e:
             logger.error(f"Error fetching PIREP data: {e}")
             return []
+    
 
-    def fetch_sigmet_airmet(self, bounds: Dict[str, float]) -> Dict[str, List[WeatherData]]:
+    def fetch_sigmet_airmet(self, bounds: Dict[str, float]) -> Dict[str, list]:
+        """
+        Fetch SIGMET and AIRMET data using your existing functions.
+        Returns a dictionary with 'sigmet' and 'airmet' keys.
+        """
+        try:
+            sigmet_list = []
+            airmet_list = []
+
+            raw_sigmet_data = isigmet(bounds)
+            raw_airmet_data = airsigmet(bounds)
+
+            if isinstance(raw_sigmet_data, list):
+                for i, sigmet in enumerate(raw_sigmet_data):
+                    sigmet_list.append(
+                        WeatherData(
+                            report_type=ReportType.SIGMET.value,
+                            station_id=f"SIGMET_{i}",
+                            raw_data=str(sigmet),
+                            timestamp=datetime.utcnow(),
+                            location=None
+                        )
+                    )
+
+            if isinstance(raw_airmet_data, list):
+                for i, airmet in enumerate(raw_airmet_data):
+                    airmet_list.append(
+                        WeatherData(
+                            report_type=ReportType.AIRMET.value,
+                            station_id=f"AIRMET_{i}",
+                            raw_data=str(airmet),
+                            timestamp=datetime.utcnow(),
+                            location=None
+                        )
+                    )
+
+            return {"sigmet": sigmet_list, "airmet": airmet_list}
+        except Exception as e:
+            logger.error(f"Error fetching SIGMET/AIRMET data: {e}")
+            return {"sigmet": [], "airmet": []}
+
+    def airsigmet(self, bounds: Dict[str, float]) -> Dict[str, List[WeatherData]]:
         """
         Fetch SIGMET and AIRMET data using your existing functions.
 
@@ -278,8 +338,8 @@ class WeatherDataIntegrator:
             logger.info(f"Fetching SIGMET/AIRMET data for bounds: {bounds}")
 
             # MODIFY THIS: Call your actual SIGMET/AIRMET functions from main.py
-            raw_sigmet_data = get_sigmet_data(bounds)
-            raw_airmet_data = get_airmet_data(bounds)
+            raw_sigmet_data = isigmet(bounds)
+            raw_airmet_data = airsigmet(bounds)
 
             # Process SIGMET data
             sigmet_list = []
@@ -308,8 +368,8 @@ class WeatherDataIntegrator:
                     airmet_list.append(weather_data)
 
             result = {
-                'sigmet': sigmet_list,
-                'airmet': airmet_list
+                'sigmete': sigmet_list,
+                'airmete': airmet_list
             }
 
             logger.info(f"Successfully fetched {len(sigmet_list)} SIGMET and {len(airmet_list)} AIRMET reports")
@@ -317,7 +377,7 @@ class WeatherDataIntegrator:
 
         except Exception as e:
             logger.error(f"Error fetching SIGMET/AIRMET data: {e}")
-            return {'sigmet': [], 'airmet': []}
+            return {'sigmete': [], 'airmete': []}
 
 # ============================================================================
 # AI WEATHER ANALYSIS CLASS
@@ -339,7 +399,7 @@ class GeminiWeatherAnalyzer:
         """
         try:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
             logger.info("Gemini AI analyzer initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini AI: {e}")
@@ -887,113 +947,65 @@ class WeatherService:
             logger.error(f"Failed to initialize WeatherService: {e}")
             raise
 
+    # ...existing code...
     def get_weather_analysis(self, station_ids: List[str], 
-                           report_types: List[str] = None,
-                           analysis_type: str = "comprehensive",
-                           include_forecast: bool = False,
-                           raw_data: bool = False) -> Dict:
-        """
-        Main method to get comprehensive weather analysis.
-
-        Args:
-            station_ids: List of ICAO airport codes to analyze
-            report_types: Types of reports to include (metar, taf, pirep, etc.)
-            analysis_type: Type of analysis (comprehensive, severity, forecast, route)
-            include_forecast: Whether to include forecast analysis
-            raw_data: Whether to include raw weather data in response
-
-        Returns:
-            Dictionary containing complete weather analysis
-        """
+                        report_types: List[str] = None,
+                        analysis_type: str = "comprehensive",
+                        include_forecast: bool = False,
+                        raw_data: bool = False) -> Dict:
+            
         try:
             logger.info(f"Starting weather analysis for stations: {station_ids}")
             logger.info(f"Analysis type: {analysis_type}, Report types: {report_types}")
 
             all_weather_data = []
 
-            # Calculate geographic bounds for area-based reports (PIREP, SIGMET, AIRMET)
             bounds = self._calculate_bounds_from_stations(station_ids)
 
-            # Fetch different types of weather data based on request
+            # Fix: If report_types is None, treat it as empty list
+            if report_types is None:
+                report_types = []
+
+             # Fetch different types of weather data based on request
             if not report_types or 'metar' in report_types:
-                logger.info("Fetching METAR data...")
-                metar_data = self.weather_integrator.fetch_metar(station_ids)
-                all_weather_data.extend(metar_data)
-                logger.info(f"Retrieved {len(metar_data)} METAR reports")
+                 logger.info("Fetching METAR data...")
+                 metar_data = self.weather_integrator.fetch_metar(station_ids)
+                 all_weather_data.extend(metar_data)
+                 logger.info(f"Retrieved {len(metar_data)} METAR reports")
 
             if not report_types or 'taf' in report_types:
-                logger.info("Fetching TAF data...")
-                taf_data = self.weather_integrator.fetch_taf(station_ids)
-                all_weather_data.extend(taf_data)
-                logger.info(f"Retrieved {len(taf_data)} TAF reports")
+                 logger.info("Fetching TAF data...")
+                 taf_data = self.weather_integrator.fetch_taf(station_ids)
+                 all_weather_data.extend(taf_data)
+                 logger.info(f"Retrieved {len(taf_data)} TAF reports")
 
             if not report_types or 'pirep' in report_types:
-                logger.info("Fetching PIREP data...")
-                pirep_data = self.weather_integrator.fetch_pirep(bounds)
-                all_weather_data.extend(pirep_data)
-                logger.info(f"Retrieved {len(pirep_data)} PIREP reports")
+                 logger.info("Fetching PIREP data...")
+                 pirep_data = self.weather_integrator.fetch_pirep(bounds)
+                 all_weather_data.extend(pirep_data)
+                 logger.info(f"Retrieved {len(pirep_data)} PIREP reports")
 
             if not report_types or any(rt in ['sigmet', 'airmet'] for rt in report_types):
-                logger.info("Fetching SIGMET/AIRMET data...")
-                sigmet_airmet = self.weather_integrator.fetch_sigmet_airmet(bounds)
+                 logger.info("Fetching SIGMET/AIRMET data...")
+                 sigmet_airmet = self.weather_integrator.fetch_sigmet_airmet(bounds)
 
-                if 'sigmet' in report_types or not report_types:
-                    all_weather_data.extend(sigmet_airmet['sigmet'])
-                    logger.info(f"Retrieved {len(sigmet_airmet['sigmet'])} SIGMET reports")
+                 if 'sigmet' in report_types or not report_types:
+                     all_weather_data.extend(sigmet_airmet['sigmet'])
+                     logger.info(f"Retrieved {len(sigmet_airmet['sigmet'])} SIGMET reports")
 
-                if 'airmet' in report_types or not report_types:
-                    all_weather_data.extend(sigmet_airmet['airmet'])
-                    logger.info(f"Retrieved {len(sigmet_airmet['airmet'])} AIRMET reports")
+                 if 'airmet' in report_types or not report_types:
+                     all_weather_data.extend(sigmet_airmet['airmet'])
+                     logger.info(f"Retrieved {len(sigmet_airmet['airmet'])} AIRMET reports")
 
             logger.info(f"Total weather reports collected: {len(all_weather_data)}")
 
-            # Perform AI analysis on collected data
-            logger.info("Starting AI weather analysis...")
-            analysis = self.ai_analyzer.analyze_weather_data(
-                all_weather_data, analysis_type, report_types
-            )
-
-            # Prepare comprehensive response
-            response = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "stations_analyzed": station_ids,
-                "analysis_type": analysis_type,
-                "analysis": analysis,
-                "data_sources": list(set([wd.report_type for wd in all_weather_data])),
-                "total_reports": len(all_weather_data)
-            }
-
-            # Add raw data if requested
-            if raw_data:
-                logger.info("Including raw weather data in response")
-                response["raw_data"] = [
-                    {
-                        "type": wd.report_type,
-                        "station": wd.station_id,
-                        "data": wd.raw_data,
-                        "timestamp": wd.timestamp.isoformat(),
-                        "location": wd.location
-                    } for wd in all_weather_data
-                ]
-
-            # Add forecast analysis if requested
-            if include_forecast:
-                logger.info("Adding forecast analysis...")
-                forecast_analysis = self.ai_analyzer.analyze_weather_data(
-                    all_weather_data, "forecast", report_types
-                )
-                response["forecast"] = forecast_analysis
-
-            logger.info("Weather analysis completed successfully")
-            return response
-
+        # ...rest of your code...
         except Exception as e:
-            logger.error(f"Weather analysis failed: {e}")
-            return {
-                "error": str(e), 
-                "timestamp": datetime.utcnow().isoformat(),
-                "stations_requested": station_ids
-            }
+          logger.error(f"Error in get_weather_analysis: {e}")
+        return {
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
     def get_route_weather(self, origin: str, destination: str,
                          alternate_routes: bool = False) -> Dict:
@@ -1262,7 +1274,7 @@ class WeatherService:
 # Global weather service instance
 weather_service = None
 
-@app.before_first_request
+@app.before_request
 def initialize_service():
     """
     Initialize the weather service before handling any requests.
@@ -1284,6 +1296,9 @@ def initialize_service():
 
     except Exception as e:
         logger.error(f"Failed to initialize weather service: {e}")
+        return False
+
+initialize_service()
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1321,173 +1336,168 @@ def get_weather_analysis_endpoint():
             return jsonify({"error": "Weather service not initialized"}), 503
 
         # Parse request data
-        data = request.get_json()
+        try:
+            data = request.get_json(force=True)
+        except Exception as e:
+            return jsonify({
+                "error": "Invalid JSON in request body",
+                "message": str(e),
+                "expected_format": {
+                    "stations": ["VOBL","VOMM"],
+                    "analysis_type":"comprehensive"
+                }
+            }), 400
         if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
+            return jsonify({
+                "error": "No JSON data provided",
+                "expected_format": {
+                    "stations": ["VOBL","VOMM"],
+                    "analysis_type":"comprehensive"
+                }
+                }), 400
 
-        # Extract parameters with defaults
         station_ids = data.get('stations', [])
+        if not isinstance(station_ids, list) or not station_ids:
+            return jsonify({
+                "error": "stations must be a non-empty list of ICAO codes",
+                "example": ["VOBL", "VOMM"]
+            }), 400
+        
         report_types = data.get('report_types', None)
         analysis_type = data.get('analysis_type', 'comprehensive')
         include_forecast = data.get('include_forecast', False)
         raw_data = data.get('raw_data', False)
-
-        # Validate required parameters
-        if not station_ids or not isinstance(station_ids, list):
-            return jsonify({"error": "stations parameter required and must be a list"}), 400
-
+        
         logger.info(f"Weather analysis request: {station_ids}, type: {analysis_type}")
-
+        
         # Perform analysis
         result = weather_service.get_weather_analysis(
             station_ids, report_types, analysis_type, include_forecast, raw_data
         )
-
+        
         return jsonify(result)
-
+        
     except Exception as e:
         logger.error(f"Weather analysis endpoint failed: {e}")
         return jsonify({
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "help": "Check that your request has proper JSON format"
         }), 500
 
 @app.route('/weather/severity', methods=['POST'])
 def get_weather_severity_endpoint():
     """
-    Quick severity assessment endpoint for immediate go/no-go decisions.
-
-    Expected JSON payload:
-    {
-        "stations": ["VOBL", "VOMM"]    // Required: List of ICAO codes
-    }
-
-    Returns:
-        JSON response with quick severity assessment
+    Quick severity assessment endpoint.
     """
     try:
         if not weather_service:
             return jsonify({"error": "Weather service not initialized"}), 503
-
-        data = request.get_json()
+        
+        # ✅ FIXED JSON parsing
+        try:
+            data = request.get_json(force=True)
+        except:
+            return jsonify({"error": "Invalid JSON format"}), 400
+        
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
-
+        
         station_ids = data.get('stations', [])
-
-        if not station_ids:
-            return jsonify({"error": "stations parameter required"}), 400
-
+        if not isinstance(station_ids, list) or not station_ids:
+            return jsonify({"error": "stations must be a non-empty list"}), 400
+        
         logger.info(f"Severity assessment request: {station_ids}")
-
-        # Get severity analysis
+        
         result = weather_service.get_weather_analysis(
             station_ids, analysis_type="severity"
         )
-
+        
         return jsonify(result)
-
+        
     except Exception as e:
         logger.error(f"Severity assessment endpoint failed: {e}")
-        return jsonify({
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/weather/route', methods=['POST'])
 def get_route_weather_endpoint():
     """
     Route-specific weather analysis endpoint.
-
-    Expected JSON payload:
-    {
-        "origin": "VOBL",               // Required: Origin ICAO code
-        "destination": "VEGT",          // Required: Destination ICAO code
-        "alternate_routes": false       // Optional: Generate alternates if weather severe
-    }
-
-    Returns:
-        JSON response with route-specific weather analysis
     """
     try:
         if not weather_service:
             return jsonify({"error": "Weather service not initialized"}), 503
-
-        data = request.get_json()
+        
+        # ✅ FIXED JSON parsing
+        try:
+            data = request.get_json(force=True)
+        except:
+            return jsonify({"error": "Invalid JSON format"}), 400
+        
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
-
-        origin = data.get('origin')
-        destination = data.get('destination')
+        
+        origin = data.get('origin', '').strip()
+        destination = data.get('destination', '').strip()
         alternate_routes = data.get('alternate_routes', False)
-
+        
         if not origin or not destination:
-            return jsonify({"error": "Both origin and destination required"}), 400
-
+            return jsonify({
+                "error": "Both origin and destination required",
+                "example": {"origin": "VOBL", "destination": "VEGT"}
+            }), 400
+        
         logger.info(f"Route weather analysis request: {origin} → {destination}")
-
-        # Perform route analysis
+        
         result = weather_service.get_route_weather(
             origin, destination, alternate_routes
         )
-
+        
         return jsonify(result)
-
+        
     except Exception as e:
         logger.error(f"Route weather analysis endpoint failed: {e}")
-        return jsonify({
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/weather/raw', methods=['POST'])
 def get_raw_weather_data_endpoint():
     """
     Raw weather data endpoint without AI analysis.
-    Useful for debugging or when you want unprocessed data.
-
-    Expected JSON payload:
-    {
-        "stations": ["VOBL", "VOMM"],       // Required: List of ICAO codes
-        "report_types": ["metar", "taf"]    // Optional: Specific report types
-    }
-
-    Returns:
-        JSON response with raw weather data
     """
     try:
         if not weather_service:
             return jsonify({"error": "Weather service not initialized"}), 503
-
-        data = request.get_json()
+        
+        # ✅ FIXED JSON parsing
+        try:
+            data = request.get_json(force=True)
+        except:
+            return jsonify({"error": "Invalid JSON format"}), 400
+        
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
-
+        
         station_ids = data.get('stations', [])
+        if not isinstance(station_ids, list) or not station_ids:
+            return jsonify({"error": "stations must be a non-empty list"}), 400
+        
         report_types = data.get('report_types', None)
-
-        if not station_ids:
-            return jsonify({"error": "stations parameter required"}), 400
-
+        
         logger.info(f"Raw weather data request: {station_ids}")
-
-        # Get raw data without AI analysis
+        
         result = weather_service.get_weather_analysis(
             station_ids, report_types, analysis_type="comprehensive", raw_data=True
         )
-
+        
         # Remove AI analysis from response, keep only raw data
         if "analysis" in result:
             del result["analysis"]
-
+        
         return jsonify(result)
-
+        
     except Exception as e:
         logger.error(f"Raw weather data endpoint failed: {e}")
-        return jsonify({
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 # ============================================================================
 # MAIN APPLICATION ENTRY POINT
