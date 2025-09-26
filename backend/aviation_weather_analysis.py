@@ -947,65 +947,113 @@ class WeatherService:
             logger.error(f"Failed to initialize WeatherService: {e}")
             raise
 
-    # ...existing code...
     def get_weather_analysis(self, station_ids: List[str], 
-                        report_types: List[str] = None,
-                        analysis_type: str = "comprehensive",
-                        include_forecast: bool = False,
-                        raw_data: bool = False) -> Dict:
-            
+                           report_types: List[str] = None,
+                           analysis_type: str = "comprehensive",
+                           include_forecast: bool = False,
+                           raw_data: bool = False) -> Dict:
+        """
+        Main method to get comprehensive weather analysis.
+
+        Args:
+            station_ids: List of ICAO airport codes to analyze
+            report_types: Types of reports to include (metar, taf, pirep, etc.)
+            analysis_type: Type of analysis (comprehensive, severity, forecast, route)
+            include_forecast: Whether to include forecast analysis
+            raw_data: Whether to include raw weather data in response
+
+        Returns:
+            Dictionary containing complete weather analysis
+        """
         try:
             logger.info(f"Starting weather analysis for stations: {station_ids}")
             logger.info(f"Analysis type: {analysis_type}, Report types: {report_types}")
 
             all_weather_data = []
 
+            # Calculate geographic bounds for area-based reports (PIREP, SIGMET, AIRMET)
             bounds = self._calculate_bounds_from_stations(station_ids)
 
-            # Fix: If report_types is None, treat it as empty list
-            if report_types is None:
-                report_types = []
-
-             # Fetch different types of weather data based on request
+            # Fetch different types of weather data based on request
             if not report_types or 'metar' in report_types:
-                 logger.info("Fetching METAR data...")
-                 metar_data = self.weather_integrator.fetch_metar(station_ids)
-                 all_weather_data.extend(metar_data)
-                 logger.info(f"Retrieved {len(metar_data)} METAR reports")
+                logger.info("Fetching METAR data...")
+                metar_data = self.weather_integrator.fetch_metar(station_ids)
+                all_weather_data.extend(metar_data)
+                logger.info(f"Retrieved {len(metar_data)} METAR reports")
 
             if not report_types or 'taf' in report_types:
-                 logger.info("Fetching TAF data...")
-                 taf_data = self.weather_integrator.fetch_taf(station_ids)
-                 all_weather_data.extend(taf_data)
-                 logger.info(f"Retrieved {len(taf_data)} TAF reports")
+                logger.info("Fetching TAF data...")
+                taf_data = self.weather_integrator.fetch_taf(station_ids)
+                all_weather_data.extend(taf_data)
+                logger.info(f"Retrieved {len(taf_data)} TAF reports")
 
             if not report_types or 'pirep' in report_types:
-                 logger.info("Fetching PIREP data...")
-                 pirep_data = self.weather_integrator.fetch_pirep(bounds)
-                 all_weather_data.extend(pirep_data)
-                 logger.info(f"Retrieved {len(pirep_data)} PIREP reports")
+                logger.info("Fetching PIREP data...")
+                pirep_data = self.weather_integrator.fetch_pirep(bounds)
+                all_weather_data.extend(pirep_data)
+                logger.info(f"Retrieved {len(pirep_data)} PIREP reports")
 
             if not report_types or any(rt in ['sigmet', 'airmet'] for rt in report_types):
-                 logger.info("Fetching SIGMET/AIRMET data...")
-                 sigmet_airmet = self.weather_integrator.fetch_sigmet_airmet(bounds)
+                logger.info("Fetching SIGMET/AIRMET data...")
+                sigmet_airmet = self.weather_integrator.fetch_sigmet_airmet(bounds)
 
-                 if 'sigmet' in report_types or not report_types:
-                     all_weather_data.extend(sigmet_airmet['sigmet'])
-                     logger.info(f"Retrieved {len(sigmet_airmet['sigmet'])} SIGMET reports")
+                if 'sigmet' in report_types or not report_types:
+                    all_weather_data.extend(sigmet_airmet['sigmet'])
+                    logger.info(f"Retrieved {len(sigmet_airmet['sigmet'])} SIGMET reports")
 
-                 if 'airmet' in report_types or not report_types:
-                     all_weather_data.extend(sigmet_airmet['airmet'])
-                     logger.info(f"Retrieved {len(sigmet_airmet['airmet'])} AIRMET reports")
+                if 'airmet' in report_types or not report_types:
+                    all_weather_data.extend(sigmet_airmet['airmet'])
+                    logger.info(f"Retrieved {len(sigmet_airmet['airmet'])} AIRMET reports")
 
             logger.info(f"Total weather reports collected: {len(all_weather_data)}")
 
-        # ...rest of your code...
+            # Perform AI analysis on collected data
+            logger.info("Starting AI weather analysis...")
+            analysis = self.ai_analyzer.analyze_weather_data(
+                all_weather_data, analysis_type, report_types
+            )
+
+            # Prepare comprehensive response
+            response = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "stations_analyzed": station_ids,
+                "analysis_type": analysis_type,
+                "analysis": analysis,
+                "data_sources": list(set([wd.report_type for wd in all_weather_data])),
+                "total_reports": len(all_weather_data)
+            }
+
+            # Add raw data if requested
+            if raw_data:
+                logger.info("Including raw weather data in response")
+                response["raw_data"] = [
+                    {
+                        "type": wd.report_type,
+                        "station": wd.station_id,
+                        "data": wd.raw_data,
+                        "timestamp": wd.timestamp.isoformat(),
+                        "location": wd.location
+                    } for wd in all_weather_data
+                ]
+
+            # Add forecast analysis if requested
+            if include_forecast:
+                logger.info("Adding forecast analysis...")
+                forecast_analysis = self.ai_analyzer.analyze_weather_data(
+                    all_weather_data, "forecast", report_types
+                )
+                response["forecast"] = forecast_analysis
+
+            logger.info("Weather analysis completed successfully")
+            return response
+
         except Exception as e:
-          logger.error(f"Error in get_weather_analysis: {e}")
-        return {
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }
+            logger.error(f"Weather analysis failed: {e}")
+            return {
+                "error": str(e), 
+                "timestamp": datetime.utcnow().isoformat(),
+                "stations_requested": station_ids
+            }
 
     def get_route_weather(self, origin: str, destination: str,
                          alternate_routes: bool = False) -> Dict:
